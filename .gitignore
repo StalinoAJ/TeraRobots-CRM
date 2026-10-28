@@ -16,6 +16,7 @@ dist-ssr
 src-tauri/target
 target/
 src-tauri/gen/schemas
+release-artifacts/
 
 # Editor directories and files
 .vscode/*

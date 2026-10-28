@@ -281,6 +281,7 @@ export function App() {
           onClose={() => setIsCreateRecordOpen(false)}
           objectMeta={currentObject}
           allRecords={workspace.records}
+          allObjects={workspace.objects}
           initialValues={createRecordInitialValues}
           onSubmit={handleCreateRecord}
         />

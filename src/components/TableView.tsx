@@ -7,8 +7,12 @@ import {
   Edit2,
   Check,
   X,
+  Calendar,
+  Building2,
+  User,
 } from 'lucide-react';
 import { ObjectMetadata, CrmRecord, FieldMetadata } from '../types/crm';
+import { formatHumanDate, formatExternalUrl, openExternalUrl, formatInr } from '../utils/formatters';
 
 interface TableViewProps {
   objectMeta: ObjectMetadata;
@@ -24,6 +28,7 @@ export const TableView: React.FC<TableViewProps> = ({
   objectMeta,
   records,
   allRecords,
+  allObjects,
   onSelectRecord,
   onUpdateRecord,
   onDeleteRecord,
@@ -33,12 +38,25 @@ export const TableView: React.FC<TableViewProps> = ({
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Helper to resolve relations (e.g. companyId -> "Stripe Technologies")
+  // Helper to resolve relations (e.g. companyId -> "Tata Advanced Systems")
   const resolveRelation = (targetObjectId: string | undefined, recordId: any) => {
-    if (!recordId) return '—';
+    if (!recordId) return null;
     const targetRec = allRecords.find((r) => r.id === recordId);
-    if (!targetRec) return String(recordId);
-    return targetRec.values.name || `${targetRec.values.firstName || ''} ${targetRec.values.lastName || ''}`.trim() || targetRec.id;
+    if (!targetRec) return { name: String(recordId), id: recordId, objectId: targetObjectId };
+    const name = targetRec.values.name || `${targetRec.values.firstName || ''} ${targetRec.values.lastName || ''}`.trim() || targetRec.id;
+    return { name, id: targetRec.id, objectId: targetRec.objectId };
+  };
+
+  const isLinkField = (field: FieldMetadata, val: any): boolean => {
+    if (field.fieldType === 'LINKS') return true;
+    const name = field.name.toLowerCase();
+    if (name.includes('url') || name.includes('website') || name === 'domain') return true;
+    if (typeof val === 'string' && (/^https?:\/\//i.test(val) || /^www\./i.test(val))) return true;
+    return false;
+  };
+
+  const isDateField = (field: FieldMetadata): boolean => {
+    return field.fieldType === 'DATE_TIME' || field.name.toLowerCase().endsWith('date') || field.name.toLowerCase().endsWith('at');
   };
 
   const handleStartEdit = (record: CrmRecord, field: FieldMetadata, e: React.MouseEvent) => {
@@ -195,7 +213,7 @@ export const TableView: React.FC<TableViewProps> = ({
                             </select>
                           ) : (
                             <input
-                              type={field.fieldType === 'NUMBER' || field.fieldType === 'CURRENCY' ? 'number' : 'text'}
+                              type={field.fieldType === 'NUMBER' || field.fieldType === 'CURRENCY' ? 'number' : isDateField(field) ? 'date' : 'text'}
                               value={editValue}
                               autoFocus
                               onChange={(e) => setEditValue(e.target.value)}
@@ -222,15 +240,24 @@ export const TableView: React.FC<TableViewProps> = ({
                       ) : (
                         <div className="flex items-center justify-between group/cell">
                           <span className="truncate">
+                            {/* CURRENCY */}
                             {field.fieldType === 'CURRENCY' && val !== undefined && val !== null ? (
                               <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold">
-                                ₹{Number(val).toLocaleString('en-IN')}
+                                {formatInr(val)}
                               </span>
-                            ) : field.fieldType === 'NUMBER' && val !== undefined && val !== null ? (
+                            ) : /* NUMBER */
+                            field.fieldType === 'NUMBER' && val !== undefined && val !== null ? (
                               <span className="font-mono tabular-nums text-slate-800 dark:text-zinc-200">
                                 {Number(val).toLocaleString('en-IN')}
                               </span>
-                            ) : field.fieldType === 'SELECT' && val ? (
+                            ) : /* DATE / TIME */
+                            isDateField(field) && val ? (
+                              <span className="inline-flex items-center gap-1.5 font-mono text-slate-700 dark:text-zinc-300 tabular-nums">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                <span>{formatHumanDate(String(val))}</span>
+                              </span>
+                            ) : /* SELECT */
+                            field.fieldType === 'SELECT' && val ? (
                               (() => {
                                 const opt = field.options?.find((o) => o.value === val);
                                 return (
@@ -243,21 +270,31 @@ export const TableView: React.FC<TableViewProps> = ({
                                   </span>
                                 );
                               })()
-                            ) : field.fieldType === 'RELATION' ? (
-                              <span className="text-blue-600 dark:text-blue-400 hover:underline">
-                                {resolveRelation(field.targetObject, val)}
-                              </span>
-                            ) : field.fieldType === 'LINKS' && val ? (
-                              <a
-                                href={String(val)}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                            ) : /* RELATION */
+                            (field.fieldType === 'RELATION' || field.name === 'companyId' || field.name === 'pointOfContactId' || field.name === 'targetRecordId') && val ? (
+                              (() => {
+                                const rel = resolveRelation(field.targetObject, val);
+                                if (!rel) return <span className="text-slate-300 dark:text-zinc-700">—</span>;
+                                return (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 font-medium text-[11px] hover:underline"
+                                    title={`Linked to ${rel.id}`}
+                                  >
+                                    <span>{rel.name}</span>
+                                  </span>
+                                );
+                              })()
+                            ) : /* EXTERNAL LINK / URL / WEBSITE */
+                            isLinkField(field, val) && val ? (
+                              <button
+                                type="button"
+                                onClick={(e) => openExternalUrl(String(val), e)}
+                                title={`Open ${val} in browser`}
+                                className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline max-w-[180px] truncate cursor-pointer group/link"
                               >
-                                <span>{String(val).replace(/^https?:\/\//, '')}</span>
-                                <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                              </a>
+                                <span className="truncate">{String(val).replace(/^https?:\/\//, '')}</span>
+                                <ExternalLink className="w-3 h-3 opacity-60 group-hover/link:opacity-100 shrink-0" />
+                              </button>
                             ) : val !== undefined && val !== null && String(val) !== '' ? (
                               String(val)
                             ) : (
